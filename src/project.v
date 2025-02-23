@@ -1,14 +1,14 @@
 `default_nettype none
 
 module tt_um_vga_example(
-    input  wire [7:0] ui_in,    // Unused input
-    output wire [7:0] uo_out,   // Output to TinyVGA PMOD
-    input  wire [7:0] uio_in,   // Unused input
-    output wire [7:0] uio_out,  // Unused output
-    output wire [7:0] uio_oe,   // Unused output
-    input  wire       ena,      // Unused enable signal
-    input  wire       clk,      // 60 MHz clock
-    input  wire       rst_n     // Active-low reset
+    input  wire [7:0] ui_in,    
+    output wire [7:0] uo_out,   
+    input  wire [7:0] uio_in,   
+    output wire [7:0] uio_out,  
+    output wire [7:0] uio_oe,   
+    input  wire       ena,      
+    input  wire       clk,      
+    input  wire       rst_n     
 );
 
 // VGA Constants
@@ -17,43 +17,33 @@ parameter SCREEN_HEIGHT = 480;
 parameter CENTER_X = SCREEN_WIDTH / 2;
 parameter CENTER_Y = SCREEN_HEIGHT / 2;
 
-// Mode switching timer (switches every ~2 seconds at 60Hz refresh)
-reg [7:0] mode_counter;
-reg mode_select;  // 0 = fixed pattern, 1 = random pattern
+// Simplified counters
+reg [7:0] pattern_counter;
+reg [5:0] color_counter;
 
-// LFSR for random number generation
-reg [15:0] lfsr;
-wire [15:0] next_lfsr;
+// Simplified LFSR (8-bit)
+reg [7:0] lfsr;
+wire [7:0] next_lfsr;
+assign next_lfsr = {lfsr[6:0], lfsr[7] ^ lfsr[5] ^ lfsr[4] ^ lfsr[3]};
 
-// Animation counters
-reg [9:0] pattern_counter;
-reg [7:0] color_counter;
-
-// Mode switching logic
-always @(posedge vsync or negedge rst_n) begin
-    if (~rst_n) begin
-        mode_counter <= 0;
-        mode_select <= 0;
-    end else begin
-        mode_counter <= mode_counter + 1;
-        if (mode_counter == 8'd120) begin  // Switch every 120 frames
-            mode_counter <= 0;
-            mode_select <= ~mode_select;
-        end
-    end
-end
-
-// LFSR implementation
 always @(posedge clk or negedge rst_n) begin
     if (~rst_n)
-        lfsr <= 16'hACE1;
+        lfsr <= 8'hAC;
     else
         lfsr <= next_lfsr;
 end
-assign next_lfsr = {lfsr[14:0], lfsr[15] ^ lfsr[14] ^ lfsr[12] ^ lfsr[3]};
 
-// Animation counter logic
-always @(posedge vsync) begin
+// Simple mode selection
+reg mode_select;
+always @(posedge vsync or negedge rst_n) begin
+    if (~rst_n)
+        mode_select <= 0;
+    else
+        mode_select <= pattern_counter[7];
+end
+
+// Counter logic
+always @(posedge vsync or negedge rst_n) begin
     if (~rst_n) begin
         pattern_counter <= 0;
         color_counter <= 0;
@@ -63,50 +53,27 @@ always @(posedge vsync) begin
     end
 end
 
-// Basic calculations
-wire [9:0] delta_x = (pix_x > CENTER_X) ? (pix_x - CENTER_X) : (CENTER_X - pix_x);
-wire [9:0] delta_y = (pix_y > CENTER_Y) ? (pix_y - CENTER_Y) : (CENTER_Y - pix_y);
-wire [19:0] radius = (delta_x * delta_x) + (delta_y * delta_y);
-wire [7:0] angle = (delta_y[7:0] ^ delta_x[7:0]) + pattern_counter[7:0];
+// Simplified calculations
+wire [8:0] delta_x = (pix_x > CENTER_X) ? (pix_x - CENTER_X) : (CENTER_X - pix_x);
+wire [8:0] delta_y = (pix_y > CENTER_Y) ? (pix_y - CENTER_Y) : (CENTER_Y - pix_y);
+wire [17:0] radius = (delta_x * delta_x) + (delta_y * delta_y);
+wire [7:0] angle = (delta_y[7:0] ^ delta_x[7:0]) + pattern_counter;
 
-// Color palette
-wire [5:0] base_color = {
-    color_counter[7:6],
-    color_counter[5:4],
-    color_counter[3:2]
-};
+// Base color generation
+wire [5:0] base_color = {color_counter[5:4], color_counter[3:2], color_counter[1:0]};
 
-// Fixed radius boundaries (Mode 0)
-wire [19:0] fixed_r1 = 20000;
-wire [19:0] fixed_r2 = 40000;
-wire [19:0] fixed_r3 = 60000;
-wire [19:0] fixed_r4 = 80000;
-wire [19:0] fixed_r5 = 100000;
-wire [19:0] fixed_r6 = 120000;
-wire [19:0] fixed_r7 = 140000;
-wire [19:0] fixed_r8 = 160000;
+// Simplified radius boundaries
+wire [17:0] radius_step = 20000;
+wire [17:0] r1 = radius_step + (mode_select ? {lfsr[3:0], 8'b0} : 0);
+wire [17:0] r2 = r1 + radius_step;
+wire [17:0] r3 = r2 + radius_step;
+wire [17:0] r4 = r3 + radius_step;
+wire [17:0] r5 = r4 + radius_step;
+wire [17:0] r6 = r5 + radius_step;
+wire [17:0] r7 = r6 + radius_step;
+wire [17:0] r8 = r7 + radius_step;
 
-// Random radius boundaries (Mode 1)
-wire [19:0] rand_r1 = 20000 + {lfsr[7:0], 8'b0};
-wire [19:0] rand_r2 = rand_r1 + 20000 + {lfsr[15:8], 8'b0};
-wire [19:0] rand_r3 = rand_r2 + 20000 + {lfsr[11:4], 8'b0};
-wire [19:0] rand_r4 = rand_r3 + 20000 + {lfsr[14:7], 8'b0};
-wire [19:0] rand_r5 = rand_r4 + 20000 + {lfsr[10:3], 8'b0};
-wire [19:0] rand_r6 = rand_r5 + 20000 + {lfsr[13:6], 8'b0};
-wire [19:0] rand_r7 = rand_r6 + 20000 + {lfsr[9:2], 8'b0};
-wire [19:0] rand_r8 = rand_r7 + 20000 + {lfsr[12:5], 8'b0};
-
-// Select current radius boundaries based on mode
-wire [19:0] r1 = mode_select ? rand_r1 : fixed_r1;
-wire [19:0] r2 = mode_select ? rand_r2 : fixed_r2;
-wire [19:0] r3 = mode_select ? rand_r3 : fixed_r3;
-wire [19:0] r4 = mode_select ? rand_r4 : fixed_r4;
-wire [19:0] r5 = mode_select ? rand_r5 : fixed_r5;
-wire [19:0] r6 = mode_select ? rand_r6 : fixed_r6;
-wire [19:0] r7 = mode_select ? rand_r7 : fixed_r7;
-wire [19:0] r8 = mode_select ? rand_r8 : fixed_r8;
-
-// Define mandala layers
+// Simplified layer patterns
 wire layer1 = (radius < r1) & (angle[4] ^ angle[6]);
 wire layer2 = (radius < r2 && radius > r1) & (angle[3] ^ angle[5]);
 wire layer3 = (radius < r3 && radius > r2) & (angle[5] ^ angle[7]);
@@ -116,27 +83,16 @@ wire layer6 = (radius < r6 && radius > r5) & (angle[1] ^ angle[6]);
 wire layer7 = (radius < r7 && radius > r6) & (angle[4] ^ angle[2]);
 wire layer8 = (radius < r8 && radius > r7) & (angle[7] ^ angle[3]);
 
-// New layers with more complex patterns
-wire layer9 = (radius < r1) & (angle[4] ^ angle[6]) & (delta_x[7:0] == delta_y[7:0]);
-wire layer10 = (radius < r2 && radius > r1) & (angle[3] ^ angle[5]) & (delta_x[7:0] != delta_y[7:0]);
-wire layer11 = (radius < r3 && radius > r2) & (angle[5] ^ angle[7]) & (delta_x[7:0] == delta_y[7:0]);
-wire layer12 = (radius < r4 && radius > r3) & (angle[2] ^ angle[6]) & (delta_x[7:0] != delta_y[7:0]);
-
-// Color assignments
-wire [5:0] color1 = base_color + 6'b110000;  // Red tint
-wire [5:0] color2 = base_color + 6'b001100;  // Green tint
-wire [5:0] color3 = base_color + 6'b000011;  // Blue tint
-wire [5:0] color4 = base_color + 6'b110011;  // Purple tint
-wire [5:0] color5 = base_color + 6'b111100;  // Yellow tint
-wire [5:0] color6 = base_color + 6'b011001;  // Orange tint
-wire [5:0] color7 = base_color + 6'b101010;  // Teal tint
-wire [5:0] color8 = base_color + 6'b010101;  // Magenta tint
-
-// New color assignments
-wire [5:0] color9 = base_color + 6'b100100;  // New red tint
-wire [5:0] color10 = base_color + 6'b010010;  // New green tint
-wire [5:0] color11 = base_color + 6'b001001;  // New blue tint
-wire [5:0] color12 = base_color + 6'b110101;  // New purple tint
+// Simplified color tints
+wire [5:0] color_tint = {2'b10, 2'b01, 2'b01};
+wire [5:0] color1 = base_color + (1 * color_tint);
+wire [5:0] color2 = base_color + (2 * color_tint);
+wire [5:0] color3 = base_color + (3 * color_tint);
+wire [5:0] color4 = base_color + (4 * color_tint);
+wire [5:0] color5 = base_color + (5 * color_tint);
+wire [5:0] color6 = base_color + (6 * color_tint);
+wire [5:0] color7 = base_color + (7 * color_tint);
+wire [5:0] color8 = base_color + (8 * color_tint);
 
 // Combine layers with colors
 wire [5:0] rgb;
@@ -149,77 +105,18 @@ assign rgb = video_active ? (
     layer6 ? color6 :
     layer7 ? color7 :
     layer8 ? color8 :
-    layer9 ? color9 :
-    layer10 ? color10 :
-    layer11 ? color11 :
-    layer12 ? color12 :
     6'b000000
 ) : 6'b000000;
-
-// Alternate pattern generation
-reg [7:0] alternate_pattern;
-reg [7:0] alternate_counter;
-always @(posedge vsync or negedge rst_n) begin
-    if (~rst_n) begin
-        alternate_counter <= 0;
-    end else begin
-        alternate_counter <= alternate_counter + 1;
-        if (alternate_counter == 8'd120) begin  // Alternate pattern every 120 frames
-            alternate_counter <= 0;
-            alternate_pattern <= ~alternate_pattern;
-        end
-    end
-end
-
-// Alternate pattern color assignments
-wire [5:0] alternate_color1 = base_color + 6'b100010;  // Alternate red tint
-wire [5:0] alternate_color2 = base_color + 6'b010100;  // Alternate green tint
-wire [5:0] alternate_color3 = base_color + 6'b001010;  // Alternate blue tint
-wire [5:0] alternate_color4 = base_color + 6'b100101;  // Alternate purple tint
-wire [5:0] alternate_color5 = base_color + 6'b110100;  // Alternate yellow tint
-wire [5:0] alternate_color6 = base_color + 6'b101001;  // Alternate orange tint
-wire [5:0] alternate_color7 = base_color + 6'b010110;  // Alternate teal tint
-wire [5:0] alternate_color8 = base_color + 6'b001101;  // Alternate magenta tint
-wire [5:0] alternate_color9 = base_color + 6'b100110;  // New alternate red tint
-wire [5:0] alternate_color10 = base_color + 6'b010110;  // New alternate green tint
-wire [5:0] alternate_color11 = base_color + 6'b001110;  // New alternate blue tint
-wire [5:0] alternate_color12 = base_color + 6'b110110;  // New alternate purple tint
-
-// Combine alternate layers with colors
-wire [5:0] alternate_rgb;
-assign alternate_rgb = video_active ? (
-    layer1 ? alternate_color1 :
-    layer2 ? alternate_color2 :
-    layer3 ? alternate_color3 :
-    layer4 ? alternate_color4 :
-    layer5 ? alternate_color5 :
-    layer6 ? alternate_color6 :
-    layer7 ? alternate_color7 :
-    layer8 ? alternate_color8 :
-    layer9 ? alternate_color9 :
-    layer10 ? alternate_color10 :
-    layer11 ? alternate_color11 :
-    layer12 ? alternate_color12 :
-    6'b000000
-) : 6'b000000;
-
-// Output selection based on alternate pattern
-assign {R, G, B} = alternate_pattern ? alternate_rgb : rgb;
 
 // VGA signals
-wire hsync;
-wire vsync;
-wire [1:0] R;
-wire [1:0] G;
-wire [1:0] B;
+wire hsync, vsync;
+wire [1:0] R, G, B;
 wire video_active;
-wire [9:0] pix_x;
-wire [9:0] pix_y;
+wire [9:0] pix_x, pix_y;
 
-// TinyVGA PMOD output
+// Output assignments
+assign {R, G, B} = rgb;
 assign uo_out = {hsync, B[0], G[0], R[0], vsync, B[1], G[1], R[1]};
-
-// Unused outputs
 assign uio_out = 0;
 assign uio_oe = 0;
 
@@ -236,9 +133,10 @@ hvsync_generator hvsync_gen(
     .hpos(pix_x),
     .vpos(pix_y)
 );
+
 endmodule
 
-// VGA Sync Generator module remains unchanged
+// VGA Sync Generator module
 module hvsync_generator(
     input  wire       clk,
     input  wire       reset,
@@ -249,14 +147,12 @@ module hvsync_generator(
     output wire [9:0] vpos
 );
 
-// Horizontal timing parameters
 parameter H_DISPLAY = 640;
 parameter H_FRONT = 16;
 parameter H_SYNC = 96;
 parameter H_BACK = 48;
 parameter H_TOTAL = H_DISPLAY + H_FRONT + H_SYNC + H_BACK;
 
-// Vertical timing parameters
 parameter V_DISPLAY = 480;
 parameter V_FRONT = 10;
 parameter V_SYNC = 2;
