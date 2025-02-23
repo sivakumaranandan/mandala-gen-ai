@@ -10,58 +10,87 @@ module tt_um_vga_example(
     input  wire       clk,      
     input  wire       rst_n     
 );
+    // VGA Constants
+    parameter SCREEN_WIDTH = 640;
+    parameter SCREEN_HEIGHT = 480;
+    parameter CENTER_X = SCREEN_WIDTH/2;
+    parameter CENTER_Y = SCREEN_HEIGHT/2;
+
     // Core signals
-    reg [7:0] pattern_counter;
-    reg [7:0] lfsr;
+    reg [9:0] pattern_counter;
+    reg [7:0] color_counter;
     reg vsync_prev;
 
     wire hsync, vsync, video_active;
     wire [9:0] pix_x, pix_y;
-    wire R, G, B;
+    wire [1:0] R, G, B;
 
-    // Simplified LFSR
-    always @(posedge clk or negedge rst_n) begin
-        if (!rst_n)
-            lfsr <= 8'hA5;
-        else
-            lfsr <= {lfsr[6:0], lfsr[7] ^ lfsr[5]};
-    end
-
-    // Frame counter
+    // Pattern and color counters
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            pattern_counter <= 8'd0;
-            vsync_prev <= 1'b0;
+            vsync_prev <= 0;
+            pattern_counter <= 0;
+            color_counter <= 0;
         end else begin
             vsync_prev <= vsync;
-            if (vsync && !vsync_prev)
+            if (vsync && !vsync_prev) begin
                 pattern_counter <= pattern_counter + 1;
+                color_counter <= color_counter + 1;
+            end
         end
     end
 
     // Mandala pattern generation
-    wire [8:0] dx = (pix_x[9:1] > 160) ? (pix_x[9:1] - 160) : (160 - pix_x[9:1]);
-    wire [8:0] dy = (pix_y[9:1] > 120) ? (pix_y[9:1] - 120) : (120 - pix_y[9:1]);
-    
-    // Simplified radius calculation (using sum of absolute differences)
-    wire [9:0] radius = dx + dy;
-    
-    // Angle approximation using XOR
-    wire [7:0] angle = dx[7:0] ^ dy[7:0];
-    
-    // Pattern regions based on radius and angle
-    wire [2:0] pattern;
-    assign pattern[0] = (radius < 100) & (angle[7:6] == pattern_counter[1:0]);
-    assign pattern[1] = (radius < 200 && radius >= 100) & (angle[5:4] == pattern_counter[3:2]);
-    assign pattern[2] = (radius >= 200) & (angle[3:2] == pattern_counter[5:4]);
+    wire [9:0] delta_x = (pix_x > CENTER_X) ? (pix_x - CENTER_X) : (CENTER_X - pix_x);
+    wire [9:0] delta_y = (pix_y > CENTER_Y) ? (pix_y - CENTER_Y) : (CENTER_Y - pix_y);
+    wire [19:0] radius = (delta_x * delta_x) + (delta_y * delta_y);
+    wire [7:0] angle = (delta_y[7:0] ^ delta_x[7:0]) + pattern_counter[7:0];
+
+    // Mandala layers
+    wire layer1 = (radius < 20000) & (angle[4] ^ angle[6]);
+    wire layer2 = (radius < 40000 && radius > 20000) & (angle[3] ^ angle[5]);
+    wire layer3 = (radius < 60000 && radius > 40000) & (angle[5] ^ angle[7]);
+    wire layer4 = (radius < 80000 && radius > 60000) & (angle[2] ^ angle[6]);
+    wire layer5 = (radius < 100000 && radius > 80000) & (angle[3] ^ angle[7]);
+    wire layer6 = (radius < 120000 && radius > 100000) & (angle[1] ^ angle[6]);
+    wire layer7 = (radius < 140000 && radius > 120000) & (angle[4] ^ angle[2]);
+    wire layer8 = (radius < 160000 && radius > 140000) & (angle[7] ^ angle[3]);
 
     // Color generation
-    assign R = video_active & (pattern[0] | (lfsr[7] & pattern[2]));
-    assign G = video_active & (pattern[1] | (lfsr[5] & pattern[0]));
-    assign B = video_active & (pattern[2] | (lfsr[3] & pattern[1]));
+    wire [5:0] base_color = {
+        color_counter[7:6],
+        color_counter[5:4],
+        color_counter[3:2]
+    };
+
+    // Layer colors
+    wire [5:0] color1 = base_color + 6'b110000;  // Red tint
+    wire [5:0] color2 = base_color + 6'b001100;  // Green tint
+    wire [5:0] color3 = base_color + 6'b000011;  // Blue tint
+    wire [5:0] color4 = base_color + 6'b110011;  // Purple tint
+    wire [5:0] color5 = base_color + 6'b111100;  // Yellow tint
+    wire [5:0] color6 = base_color + 6'b011001;  // Orange tint
+    wire [5:0] color7 = base_color + 6'b101010;  // Teal tint
+    wire [5:0] color8 = base_color + 6'b010101;  // Magenta tint
+
+    // Color assignment
+    wire [5:0] final_color = video_active ? (
+        layer1 ? color1 :
+        layer2 ? color2 :
+        layer3 ? color3 :
+        layer4 ? color4 :
+        layer5 ? color5 :
+        layer6 ? color6 :
+        layer7 ? color7 :
+        layer8 ? color8 :
+        6'b000000
+    ) : 6'b000000;
+
+    // Split final color into RGB components
+    assign {R, G, B} = final_color;
 
     // Output assignments
-    assign uo_out = {hsync, B, G, R, vsync, 1'b0, 1'b0, 1'b0};
+    assign uo_out = {hsync, B[0], G[0], R[0], vsync, B[1], G[1], R[1]};
     assign uio_out = 8'b0;
     assign uio_oe = 8'b0;
 
@@ -79,30 +108,58 @@ module tt_um_vga_example(
     );
 endmodule
 
-// Optimized VGA Sync Generator
+// VGA Sync Generator
 module hvsync_generator(
     input  wire       clk,
     input  wire       reset,
     output wire       hsync,
     output wire       vsync,
     output wire       display_on,
-    output reg  [9:0] hpos,
-    output reg  [9:0] vpos
+    output wire [9:0] hpos,
+    output wire [9:0] vpos
 );
+    // Horizontal timing parameters
+    parameter H_DISPLAY = 640;
+    parameter H_FRONT = 16;
+    parameter H_SYNC = 96;
+    parameter H_BACK = 48;
+    parameter H_TOTAL = H_DISPLAY + H_FRONT + H_SYNC + H_BACK;
+
+    // Vertical timing parameters
+    parameter V_DISPLAY = 480;
+    parameter V_FRONT = 10;
+    parameter V_SYNC = 2;
+    parameter V_BACK = 33;
+    parameter V_TOTAL = V_DISPLAY + V_FRONT + V_SYNC + V_BACK;
+
+    reg [9:0] h_count;
+    reg [9:0] v_count;
+
     always @(posedge clk or posedge reset) begin
-        if (reset) begin
-            hpos <= 10'd0;
-            vpos <= 10'd0;
-        end else begin
-            if (hpos == 799) begin
-                hpos <= 10'd0;
-                vpos <= (vpos == 524) ? 10'd0 : vpos + 1;
-            end else
-                hpos <= hpos + 1;
+        if (reset)
+            h_count <= 0;
+        else if (h_count == H_TOTAL - 1)
+            h_count <= 0;
+        else
+            h_count <= h_count + 1;
+    end
+
+    always @(posedge clk or posedge reset) begin
+        if (reset)
+            v_count <= 0;
+        else if (h_count == H_TOTAL - 1) begin
+            if (v_count == V_TOTAL - 1)
+                v_count <= 0;
+            else
+                v_count <= v_count + 1;
         end
     end
 
-    assign hsync = (hpos >= 656) && (hpos < 752);
-    assign vsync = (vpos >= 490) && (vpos < 492);
-    assign display_on = (hpos < 640) && (vpos < 480);
+    assign hsync = (h_count >= H_DISPLAY + H_FRONT) && 
+                  (h_count < H_DISPLAY + H_FRONT + H_SYNC);
+    assign vsync = (v_count >= V_DISPLAY + V_FRONT) && 
+                  (v_count < V_DISPLAY + V_FRONT + V_SYNC);
+    assign display_on = (h_count < H_DISPLAY) && (v_count < V_DISPLAY);
+    assign hpos = h_count;
+    assign vpos = v_count;
 endmodule
