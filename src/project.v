@@ -1,89 +1,70 @@
 `default_nettype none
 
-// Main VGA Display Module
 module tt_um_vga_example(
-    input  wire [7:0] ui_in,    // Dedicated inputs
-    output wire [7:0] uo_out,   // Dedicated outputs
-    input  wire [7:0] uio_in,   // IOs: Input path
-    output wire [7:0] uio_out,  // IOs: Output path
-    output wire [7:0] uio_oe,   // IOs: Enable path
-    input  wire       ena,      // always 1
-    input  wire       clk,      // clock
-    input  wire       rst_n     // reset_n - low to reset
+    input  wire [7:0] ui_in,    
+    output wire [7:0] uo_out,   
+    input  wire [7:0] uio_in,   
+    output wire [7:0] uio_out,  
+    output wire [7:0] uio_oe,   
+    input  wire       ena,      
+    input  wire       clk,      
+    input  wire       rst_n     
 );
-    // Display parameters
-    localparam SCREEN_WIDTH = 640;
-    localparam SCREEN_HEIGHT = 480;
-    localparam CENTER_X = SCREEN_WIDTH/2;
-    localparam CENTER_Y = SCREEN_HEIGHT/2;
+    // Core signals
+    reg [7:0] pattern_counter;
+    reg [7:0] lfsr;
+    reg vsync_prev;
 
-    // Pattern generation registers
-    reg [9:0] pattern_counter;
-    reg [15:0] lfsr;
-    reg vsync_prev;  // Added to detect vsync edge
-
-    // VGA signals
     wire hsync, vsync, video_active;
     wire [9:0] pix_x, pix_y;
-    wire [1:0] R, G, B;
+    wire R, G, B;
 
-    // LFSR for random colors
+    // Simplified LFSR
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n)
-            lfsr <= 16'hACE1;
+            lfsr <= 8'hA5;
         else
-            lfsr <= {lfsr[14:0], lfsr[15] ^ lfsr[14] ^ lfsr[12] ^ lfsr[3]};
+            lfsr <= {lfsr[6:0], lfsr[7] ^ lfsr[5]};
     end
 
-    // Vsync edge detection and pattern counter update
+    // Frame counter
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
-            pattern_counter <= 10'd0;
+            pattern_counter <= 8'd0;
             vsync_prev <= 1'b0;
         end else begin
             vsync_prev <= vsync;
-            if (vsync && !vsync_prev)  // Rising edge of vsync
+            if (vsync && !vsync_prev)
                 pattern_counter <= pattern_counter + 1;
         end
     end
 
-    // Pattern generation logic
-    wire [9:0] delta_x = (pix_x > CENTER_X) ? (pix_x - CENTER_X) : (CENTER_X - pix_x);
-    wire [9:0] delta_y = (pix_y > CENTER_Y) ? (pix_y - CENTER_Y) : (CENTER_Y - pix_y);
-    wire [19:0] radius = (delta_x * delta_x) + (delta_y * delta_y);
-    wire [7:0] angle = (delta_y[7:0] ^ delta_x[7:0]) + pattern_counter[7:0];
+    // Mandala pattern generation
+    wire [8:0] dx = (pix_x[9:1] > 160) ? (pix_x[9:1] - 160) : (160 - pix_x[9:1]);
+    wire [8:0] dy = (pix_y[9:1] > 120) ? (pix_y[9:1] - 120) : (120 - pix_y[9:1]);
+    
+    // Simplified radius calculation (using sum of absolute differences)
+    wire [9:0] radius = dx + dy;
+    
+    // Angle approximation using XOR
+    wire [7:0] angle = dx[7:0] ^ dy[7:0];
+    
+    // Pattern regions based on radius and angle
+    wire [2:0] pattern;
+    assign pattern[0] = (radius < 100) & (angle[7:6] == pattern_counter[1:0]);
+    assign pattern[1] = (radius < 200 && radius >= 100) & (angle[5:4] == pattern_counter[3:2]);
+    assign pattern[2] = (radius >= 200) & (angle[3:2] == pattern_counter[5:4]);
 
-    // Pattern regions
-    wire [3:0] pattern = {
-        (radius >= 60000) & angle[7],
-        (radius < 60000 && radius >= 40000) & angle[6],
-        (radius < 40000 && radius >= 20000) & angle[5],
-        (radius < 20000) & angle[4]
-    };
-
-    // Color generation from LFSR
-    wire [5:0] colors [3:0];
-    assign colors[0] = {lfsr[15:14], lfsr[13:12], lfsr[11:10]};
-    assign colors[1] = {lfsr[9:8], lfsr[7:6], lfsr[5:4]};
-    assign colors[2] = {lfsr[3:2], lfsr[1:0], lfsr[15:14]};
-    assign colors[3] = {lfsr[13:12], lfsr[11:10], lfsr[9:8]};
-
-    // Color selection logic
-    wire [5:0] selected_color = 
-        pattern[0] ? colors[0] :
-        pattern[1] ? colors[1] :
-        pattern[2] ? colors[2] :
-        pattern[3] ? colors[3] : 6'b0;
-
-    // Final color output
-    assign {R, G, B} = video_active ? selected_color : 6'b0;
+    // Color generation
+    assign R = video_active & (pattern[0] | (lfsr[7] & pattern[2]));
+    assign G = video_active & (pattern[1] | (lfsr[5] & pattern[0]));
+    assign B = video_active & (pattern[2] | (lfsr[3] & pattern[1]));
 
     // Output assignments
-    assign uo_out = {hsync, B[0], G[0], R[0], vsync, B[1], G[1], R[1]};
+    assign uo_out = {hsync, B, G, R, vsync, 1'b0, 1'b0, 1'b0};
     assign uio_out = 8'b0;
     assign uio_oe = 8'b0;
 
-    // Unused signals
     wire _unused_ok = &{ena, ui_in, uio_in};
 
     // VGA sync generator instantiation
@@ -98,55 +79,30 @@ module tt_um_vga_example(
     );
 endmodule
 
-// VGA Sync Generator Module
+// Optimized VGA Sync Generator
 module hvsync_generator(
     input  wire       clk,
     input  wire       reset,
     output wire       hsync,
     output wire       vsync,
     output wire       display_on,
-    output wire [9:0] hpos,
-    output wire [9:0] vpos
+    output reg  [9:0] hpos,
+    output reg  [9:0] vpos
 );
-    // Timing parameters
-    localparam H_DISPLAY = 640;
-    localparam H_FRONT   = 16;
-    localparam H_SYNC    = 96;
-    localparam H_BACK    = 48;
-    localparam H_TOTAL   = H_DISPLAY + H_FRONT + H_SYNC + H_BACK;
-
-    localparam V_DISPLAY = 480;
-    localparam V_FRONT   = 10;
-    localparam V_SYNC    = 2;
-    localparam V_BACK    = 33;
-    localparam V_TOTAL   = V_DISPLAY + V_FRONT + V_SYNC + V_BACK;
-
-    // Counter registers
-    reg [9:0] h_count;
-    reg [9:0] v_count;
-
-    // Horizontal counter
     always @(posedge clk or posedge reset) begin
-        if (reset)
-            h_count <= 10'd0;
-        else
-            h_count <= (h_count == H_TOTAL - 1) ? 10'd0 : h_count + 1;
+        if (reset) begin
+            hpos <= 10'd0;
+            vpos <= 10'd0;
+        end else begin
+            if (hpos == 799) begin
+                hpos <= 10'd0;
+                vpos <= (vpos == 524) ? 10'd0 : vpos + 1;
+            end else
+                hpos <= hpos + 1;
+        end
     end
 
-    // Vertical counter
-    always @(posedge clk or posedge reset) begin
-        if (reset)
-            v_count <= 10'd0;
-        else if (h_count == H_TOTAL - 1)
-            v_count <= (v_count == V_TOTAL - 1) ? 10'd0 : v_count + 1;
-    end
-
-    // Output assignments
-    assign hsync = (h_count >= H_DISPLAY + H_FRONT) && 
-                  (h_count < H_DISPLAY + H_FRONT + H_SYNC);
-    assign vsync = (v_count >= V_DISPLAY + V_FRONT) && 
-                  (v_count < V_DISPLAY + V_FRONT + V_SYNC);
-    assign display_on = (h_count < H_DISPLAY) && (v_count < V_DISPLAY);
-    assign hpos = h_count;
-    assign vpos = v_count;
+    assign hsync = (hpos >= 656) && (hpos < 752);
+    assign vsync = (vpos >= 490) && (vpos < 492);
+    assign display_on = (hpos < 640) && (vpos < 480);
 endmodule
