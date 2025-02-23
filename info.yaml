@@ -11,7 +11,7 @@ project:
   tiles: "1x1"          # Valid values: 1x1, 1x2, 2x2, 3x2, 4x2, 6x2 or 8x2
 
   # Your top module name must start with "tt_um_". Make it unique by including your github username:
-  top_module:  "tt_um_example"
+  top_module:  "tt_um_vga_example"
 
   # List your project's source files here.
   # Source files must be in ./src and you must list each source file separately, one per line.
@@ -22,8 +22,8 @@ project:
 # The pinout of your project. Leave unused pins blank. DO NOT delete or add any pins.
 pinout:
   # Inputs
-  ui[0]: ""
-  ui[1]: ""
+  ui[0]: "pattern_select"
+  ui[1]: "color_select"
   ui[2]: ""
   ui[3]: ""
   ui[4]: ""
@@ -31,17 +31,17 @@ pinout:
   ui[6]: ""
   ui[7]: ""
 
-  # Outputs
-  uo[0]: ""
-  uo[1]: ""
-  uo[2]: ""
-  uo[3]: ""
-  uo[4]: ""
-  uo[5]: ""
-  uo[6]: ""
-  uo[7]: ""
+  # Outputs - TinyVGA PMOD configuration
+  uo[0]: "red[1]"
+  uo[1]: "green[1]"
+  uo[2]: "red[0]"
+  uo[3]: "vsync"
+  uo[4]: "blue[1]"
+  uo[5]: "green[0]"
+  uo[6]: "blue[0]"
+  uo[7]: "hsync"
 
-  # Bidirectional pins
+  # Bidirectional pins (all unused in the code)
   uio[0]: ""
   uio[1]: ""
   uio[2]: ""
