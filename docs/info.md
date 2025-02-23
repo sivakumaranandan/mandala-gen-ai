@@ -57,8 +57,36 @@ This VGA display project generates dynamic visual patterns using a combination o
 
 ## How to test
 
+This VGA display module generates a dynamic mandala pattern with rotating colors. Here's how to test the implementation:
+
+### Test Setup
+1. Connect your board to power
+2. Connect the VGA cable between your board and monitor
+3. Ensure monitor supports 640x480 @ 60Hz resolution
+
+### Basic Functionality Test
+1. Power on the system
+2. Verify the monitor displays a centered mandala pattern
+3. Check for the following indicators:
+   - Concentric circular patterns
+   - Rotating colors
+   - Smooth animation between frames
+   - No screen tearing or artifacts
+
+### Expected Behavior
+- Center of screen shows a circular mandala pattern
+- Pattern rotates smoothly with changing colors
+- Three distinct circular regions should be visible
+- Colors should shift based on the LFSR pattern
+- Display should remain stable without flickering
+
 Explain how to use your project
 
 ## External hardware
 
-List external hardware used in your project (e.g. PMOD, LED display, etc), if any
+### Prerequisites
+- TinyTapeout development board or compatible FPGA board
+- VGA monitor/display
+- VGA cable
+- Power supply
+
