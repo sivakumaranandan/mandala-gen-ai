@@ -20,6 +20,7 @@ module tt_um_vga_example(
     // Pattern generation registers
     reg [9:0] pattern_counter;
     reg [15:0] lfsr;
+    reg vsync_prev;  // Added to detect vsync edge
 
     // VGA signals
     wire hsync, vsync, video_active;
@@ -27,16 +28,23 @@ module tt_um_vga_example(
     wire [1:0] R, G, B;
 
     // LFSR for random colors
-    always @(posedge clk) begin
-        if (~rst_n)
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n)
             lfsr <= 16'hACE1;
         else
             lfsr <= {lfsr[14:0], lfsr[15] ^ lfsr[14] ^ lfsr[12] ^ lfsr[3]};
     end
 
-    // Pattern counter update
-    always @(posedge vsync) begin
-        pattern_counter <= (~rst_n) ? 10'd0 : pattern_counter + 1;
+    // Vsync edge detection and pattern counter update
+    always @(posedge clk or negedge rst_n) begin
+        if (!rst_n) begin
+            pattern_counter <= 10'd0;
+            vsync_prev <= 1'b0;
+        end else begin
+            vsync_prev <= vsync;
+            if (vsync && !vsync_prev)  // Rising edge of vsync
+                pattern_counter <= pattern_counter + 1;
+        end
     end
 
     // Pattern generation logic
@@ -119,13 +127,16 @@ module hvsync_generator(
 
     // Horizontal counter
     always @(posedge clk or posedge reset) begin
-        h_count <= (reset || h_count == H_TOTAL - 1) ? 10'd0 : h_count + 1;
+        if (reset)
+            h_count <= 10'd0;
+        else
+            h_count <= (h_count == H_TOTAL - 1) ? 10'd0 : h_count + 1;
     end
 
     // Vertical counter
     always @(posedge clk or posedge reset) begin
         if (reset)
-            v_count <= 0;
+            v_count <= 10'd0;
         else if (h_count == H_TOTAL - 1)
             v_count <= (v_count == V_TOTAL - 1) ? 10'd0 : v_count + 1;
     end
