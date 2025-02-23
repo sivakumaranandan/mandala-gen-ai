@@ -18,24 +18,21 @@ module tt_um_vga_example(
 
     // Core signals
     reg [9:0] pattern_counter;
-    reg [7:0] color_counter;
     reg vsync_prev;
 
     wire hsync, vsync, video_active;
     wire [9:0] pix_x, pix_y;
-    wire [1:0] R, G, B;
+    wire pattern_out;
 
-    // Pattern and color counters
+    // Pattern counter
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             vsync_prev <= 0;
             pattern_counter <= 0;
-            color_counter <= 0;
         end else begin
             vsync_prev <= vsync;
             if (vsync && !vsync_prev) begin
                 pattern_counter <= pattern_counter + 1;
-                color_counter <= color_counter + 1;
             end
         end
     end
@@ -56,41 +53,13 @@ module tt_um_vga_example(
     wire layer7 = (radius < 140000 && radius > 120000) & (angle[4] ^ angle[2]);
     wire layer8 = (radius < 160000 && radius > 140000) & (angle[7] ^ angle[3]);
 
-    // Color generation
-    wire [5:0] base_color = {
-        color_counter[7:6],
-        color_counter[5:4],
-        color_counter[3:2]
-    };
+    // Combine layers into single pattern output
+    assign pattern_out = video_active ? (
+        layer1 | layer2 | layer3 | layer4 | layer5 | layer6 | layer7 | layer8
+    ) : 1'b0;
 
-    // Layer colors
-    wire [5:0] color1 = base_color + 6'b110000;  // Red tint
-    wire [5:0] color2 = base_color + 6'b001100;  // Green tint
-    wire [5:0] color3 = base_color + 6'b000011;  // Blue tint
-    wire [5:0] color4 = base_color + 6'b110011;  // Purple tint
-    wire [5:0] color5 = base_color + 6'b111100;  // Yellow tint
-    wire [5:0] color6 = base_color + 6'b011001;  // Orange tint
-    wire [5:0] color7 = base_color + 6'b101010;  // Teal tint
-    wire [5:0] color8 = base_color + 6'b010101;  // Magenta tint
-
-    // Color assignment
-    wire [5:0] final_color = video_active ? (
-        layer1 ? color1 :
-        layer2 ? color2 :
-        layer3 ? color3 :
-        layer4 ? color4 :
-        layer5 ? color5 :
-        layer6 ? color6 :
-        layer7 ? color7 :
-        layer8 ? color8 :
-        6'b000000
-    ) : 6'b000000;
-
-    // Split final color into RGB components
-    assign {R, G, B} = final_color;
-
-    // Output assignments
-    assign uo_out = {hsync, B[0], G[0], R[0], vsync, B[1], G[1], R[1]};
+    // Output assignments - monochrome pattern
+    assign uo_out = {hsync, pattern_out, pattern_out, pattern_out, vsync, pattern_out, pattern_out, pattern_out};
     assign uio_out = 8'b0;
     assign uio_oe = 8'b0;
 
