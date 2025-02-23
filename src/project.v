@@ -1,5 +1,4 @@
 `default_nettype none
-
 module tt_um_vga_example(
     input  wire [7:0] ui_in,    
     output wire [7:0] uo_out,   
@@ -18,51 +17,84 @@ module tt_um_vga_example(
 
     // Core signals
     reg [9:0] pattern_counter;
+    reg [7:0] color_counter;
     reg vsync_prev;
-
     wire hsync, vsync, video_active;
     wire [9:0] pix_x, pix_y;
-    wire pattern_out;
+    wire [1:0] R, G, B;
 
-    // Pattern counter
+    // Pattern and color counters
     always @(posedge clk or negedge rst_n) begin
         if (!rst_n) begin
             vsync_prev <= 0;
             pattern_counter <= 0;
+            color_counter <= 0;
         end else begin
             vsync_prev <= vsync;
             if (vsync && !vsync_prev) begin
                 pattern_counter <= pattern_counter + 1;
+                color_counter <= color_counter + 1;
             end
         end
     end
 
-    // Mandala pattern generation
+    // Optimized radius calculation using octagonal approximation
     wire [9:0] delta_x = (pix_x > CENTER_X) ? (pix_x - CENTER_X) : (CENTER_X - pix_x);
     wire [9:0] delta_y = (pix_y > CENTER_Y) ? (pix_y - CENTER_Y) : (CENTER_Y - pix_y);
-    wire [19:0] radius = (delta_x * delta_x) + (delta_y * delta_y);
+    wire [9:0] radius = (delta_x > delta_y) ? 
+                       (delta_x + (delta_y >> 1)) : 
+                       (delta_y + (delta_x >> 1));
+
+    // Scale the radius thresholds accordingly
     wire [7:0] angle = (delta_y[7:0] ^ delta_x[7:0]) + pattern_counter[7:0];
 
-    // Mandala layers
-    wire layer1 = (radius < 20000) & (angle[4] ^ angle[6]);
-    wire layer2 = (radius < 40000 && radius > 20000) & (angle[3] ^ angle[5]);
-    wire layer3 = (radius < 60000 && radius > 40000) & (angle[5] ^ angle[7]);
-    wire layer4 = (radius < 80000 && radius > 60000) & (angle[2] ^ angle[6]);
-    wire layer5 = (radius < 100000 && radius > 80000) & (angle[3] ^ angle[7]);
-    wire layer6 = (radius < 120000 && radius > 100000) & (angle[1] ^ angle[6]);
-    wire layer7 = (radius < 140000 && radius > 120000) & (angle[4] ^ angle[2]);
-    wire layer8 = (radius < 160000 && radius > 140000) & (angle[7] ^ angle[3]);
+    // Adjusted thresholds for octagonal approximation
+    wire layer1 = (radius < 50) & (angle[4] ^ angle[6]);
+    wire layer2 = (radius < 100 && radius >= 50) & (angle[3] ^ angle[5]);
+    wire layer3 = (radius < 150 && radius >= 100) & (angle[5] ^ angle[7]);
+    wire layer4 = (radius < 200 && radius >= 150) & (angle[2] ^ angle[6]);
+    wire layer5 = (radius < 250 && radius >= 200) & (angle[3] ^ angle[7]);
+    wire layer6 = (radius < 300 && radius >= 250) & (angle[1] ^ angle[6]);
+    wire layer7 = (radius < 350 && radius >= 300) & (angle[4] ^ angle[2]);
+    wire layer8 = (radius < 400 && radius >= 350) & (angle[7] ^ angle[3]);
 
-    // Combine layers into single pattern output
-    assign pattern_out = video_active ? (
-        layer1 | layer2 | layer3 | layer4 | layer5 | layer6 | layer7 | layer8
-    ) : 1'b0;
+    // Color generation (unchanged)
+    wire [5:0] base_color = {
+        color_counter[7:6],
+        color_counter[5:4],
+        color_counter[3:2]
+    };
 
-    // Output assignments - monochrome pattern
-    assign uo_out = {hsync, pattern_out, pattern_out, pattern_out, vsync, pattern_out, pattern_out, pattern_out};
+    // Layer colors (unchanged)
+    wire [5:0] color1 = base_color + 6'b110000;  // Red tint
+    wire [5:0] color2 = base_color + 6'b001100;  // Green tint
+    wire [5:0] color3 = base_color + 6'b000011;  // Blue tint
+    wire [5:0] color4 = base_color + 6'b110011;  // Purple tint
+    wire [5:0] color5 = base_color + 6'b111100;  // Yellow tint
+    wire [5:0] color6 = base_color + 6'b011001;  // Orange tint
+    wire [5:0] color7 = base_color + 6'b101010;  // Teal tint
+    wire [5:0] color8 = base_color + 6'b010101;  // Magenta tint
+
+    // Color assignment (unchanged)
+    wire [5:0] final_color = video_active ? (
+        layer1 ? color1 :
+        layer2 ? color2 :
+        layer3 ? color3 :
+        layer4 ? color4 :
+        layer5 ? color5 :
+        layer6 ? color6 :
+        layer7 ? color7 :
+        layer8 ? color8 :
+        6'b000000
+    ) : 6'b000000;
+
+    // Split final color into RGB components
+    assign {R, G, B} = final_color;
+
+    // Output assignments
+    assign uo_out = {hsync, B[0], G[0], R[0], vsync, B[1], G[1], R[1]};
     assign uio_out = 8'b0;
     assign uio_oe = 8'b0;
-
     wire _unused_ok = &{ena, ui_in, uio_in};
 
     // VGA sync generator instantiation
@@ -77,7 +109,7 @@ module tt_um_vga_example(
     );
 endmodule
 
-// VGA Sync Generator
+// VGA Sync Generator (unchanged)
 module hvsync_generator(
     input  wire       clk,
     input  wire       reset,
