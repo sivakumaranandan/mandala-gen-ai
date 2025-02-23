@@ -22,24 +22,54 @@ module tt_um_vga_example #(
     wire video_active;
     wire [9:0] pix_x, pix_y;
 
-    // Unified counter for pattern and color
-    reg [9:0] unified_counter;
-    always @(posedge vsync or negedge rst_n) begin
-        unified_counter <= (~rst_n) ? '0 : unified_counter + 1'b1;
+    // Animation counter
+    reg [7:0] anim_counter;
+    reg vsync_prev;
+    
+    // Edge detection for vsync
+    always @(posedge clk) begin
+        if (!rst_n) begin
+            vsync_prev <= 0;
+            anim_counter <= 0;
+        end else begin
+            vsync_prev <= vsync;
+            if (vsync && !vsync_prev) begin
+                anim_counter <= anim_counter + 1'b1;
+            end
+        end
     end
 
-    // Simplified Mandala Calculations
-    wire [19:0] radius = (pix_x - CENTER_X) * (pix_x - CENTER_X) + 
-                        (pix_y - CENTER_Y) * (pix_y - CENTER_Y);
-    wire [7:0] angle = pix_x[7:0] ^ pix_y[7:0] ^ unified_counter[7:0];
+    // Mandala Pattern Generation
+    wire [9:0] dx = (pix_x >= CENTER_X) ? (pix_x - CENTER_X) : (CENTER_X - pix_x);
+    wire [9:0] dy = (pix_y >= CENTER_Y) ? (pix_y - CENTER_Y) : (CENTER_Y - pix_y);
+    
+    // Polar coordinates approximation
+    wire [11:0] radius = dx * dx + dy * dy;
+    wire [7:0] angle = (dx[7:0] + dy[7:0]) ^ anim_counter;
 
-    // Optimized Layer and Color Generation
-    wire [7:0] layer_select;
-    assign layer_select = (radius[18:15] < 4'h8) ? (1'b1 << radius[17:15]) : 8'h0;
+    // Pattern generation
+    wire [5:0] pattern;
+    assign pattern = 
+        ((radius[11:7] == 5'd8) ? 6'b111111 : 6'b000000) |
+        ((radius[11:7] == 5'd6) ? 6'b110110 : 6'b000000) |
+        ((radius[11:7] == 5'd4) ? 6'b101101 : 6'b000000) |
+        ((radius[11:7] == 5'd2) ? 6'b011011 : 6'b000000);
 
-    wire [5:0] base_color = unified_counter[7:2];
-    wire [5:0] final_color = video_active ? 
-        (layer_select ? (base_color + {layer_select[2:0], 3'b0}) : 6'b0) : 6'b0;
+    // Kaleidoscope effect
+    wire [5:0] kaleidoscope = pattern & {3{angle[2:1]}};
+
+    // Color generation
+    wire [5:0] color_base = {
+        anim_counter[7:6],  // Red component
+        anim_counter[5:4],  // Green component
+        anim_counter[3:2]   // Blue component
+    };
+
+    // Final color with animation
+    wire [5:0] final_color;
+    assign final_color = video_active ? 
+        (kaleidoscope ? (color_base + kaleidoscope) : 
+         (pattern ? color_base : 6'b0)) : 6'b0;
 
     // Color Assignment
     assign {R, G, B} = final_color;
@@ -97,7 +127,10 @@ module hvsync_generator #(
             // Position counters
             if (hpos == H_TOTAL-1) begin
                 hpos <= '0;
-                vpos <= (vpos == V_TOTAL-1) ? '0 : vpos + 1'b1;
+                if (vpos == V_TOTAL-1)
+                    vpos <= '0;
+                else
+                    vpos <= vpos + 1'b1;
             end else begin
                 hpos <= hpos + 1'b1;
             end
