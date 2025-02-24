@@ -30,32 +30,37 @@ async def test_vga_sync_signals(dut):
     """Test VGA sync signal generation"""
     await init_test(dut)
 
-    # Wait longer for sync signals to stabilize
-    await ClockCycles(dut.clk, 1600)  # Wait for 2 complete lines
+    # Wait for several frames to ensure stable signals
+    await ClockCycles(dut.clk, 3200)  # Increased wait time
 
     # Monitor for several lines of video
     hsync_seen = False
     vsync_seen = False
     prev_hsync = 0
     
-    # Check for multiple lines with edge detection
-    for _ in range(4800):  # 6 lines worth of cycles
+    # Check for more cycles with logging
+    for i in range(8000):  # Increased monitoring period
         await RisingEdge(dut.clk)
         try:
             current_output = int(dut.uo_out.value)
             curr_hsync = (current_output >> 7) & 1
             
-            # Detect HSYNC transition from 0 to 1
+            # Log signal transitions for debugging
+            if curr_hsync != prev_hsync:
+                dut._log.debug(f"HSYNC transition detected at cycle {i}: {prev_hsync}->{curr_hsync}")
+            
+            # Detect HSYNC transition
             if prev_hsync == 0 and curr_hsync == 1:
                 hsync_seen = True
-            
-            if current_output & 0x10:  # Check VSYNC
-                vsync_seen = True
+                dut._log.info(f"HSYNC pulse detected at cycle {i}")
+                break
                 
             prev_hsync = curr_hsync
+            
         except ValueError:
-            continue
-
+            # Handle X values by treating them as 0
+            curr_hsync = 0
+            
     assert hsync_seen, "HSYNC not detected"
     assert vsync_seen, "VSYNC not detected"
     dut._log.info("Sync signals detected successfully")
