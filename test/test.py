@@ -31,36 +31,54 @@ async def test_vga_sync_signals(dut):
     await init_test(dut)
 
     # Wait for several frames to ensure stable signals
-    await ClockCycles(dut.clk, 3200)  # Increased wait time
+    await ClockCycles(dut.clk, 4000)  # Increased wait time
 
     # Monitor for several lines of video
     hsync_seen = False
     vsync_seen = False
     prev_hsync = 0
+    prev_vsync = 0
     
     # Check for more cycles with logging
-    for i in range(8000):  # Increased monitoring period
+    for i in range(525 * 800):  # One full frame worth of cycles
         await RisingEdge(dut.clk)
         try:
             current_output = int(dut.uo_out.value)
             curr_hsync = (current_output >> 7) & 1
-            
-            # Log signal transitions for debugging
-            if curr_hsync != prev_hsync:
-                dut._log.debug(f"HSYNC transition detected at cycle {i}: {prev_hsync}->{curr_hsync}")
+            curr_vsync = (current_output >> 4) & 1
             
             # Detect HSYNC transition
             if prev_hsync == 0 and curr_hsync == 1:
                 hsync_seen = True
                 dut._log.info(f"HSYNC pulse detected at cycle {i}")
+            
+            # Detect VSYNC transition
+            if prev_vsync == 0 and curr_vsync == 1:
+                vsync_seen = True
+                dut._log.info(f"VSYNC pulse detected at cycle {i}")
+            
+            # If both signals are detected, we can break early
+            if hsync_seen and vsync_seen:
                 break
                 
             prev_hsync = curr_hsync
+            prev_vsync = curr_vsync
             
         except ValueError:
             # Handle X values by treating them as 0
             curr_hsync = 0
+            curr_vsync = 0
             
+        # Log progress every 1000 cycles
+        if i % 1000 == 0:
+            dut._log.debug(f"Cycle {i}: HSYNC={hsync_seen}, VSYNC={vsync_seen}")
+    
+    # Check both signals were detected
+    if not hsync_seen:
+        dut._log.error("HSYNC not detected during the test period")
+    if not vsync_seen:
+        dut._log.error("VSYNC not detected during the test period")
+        
     assert hsync_seen, "HSYNC not detected"
     assert vsync_seen, "VSYNC not detected"
     dut._log.info("Sync signals detected successfully")
