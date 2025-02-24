@@ -1,12 +1,10 @@
-# SPDX-FileCopyrightText: © 2024 Tiny Tapeout
-# SPDX-License-Identifier: Apache-2.0
-
+# vga_test.py
 import cocotb
 from cocotb.clock import Clock
-from cocotb.triggers import ClockCycles, RisingEdge
+from cocotb.triggers import RisingEdge, FallingEdge, Timer, ClockCycles
 from cocotb.binary import BinaryValue
 
-# VGA Constants for 640x480@60Hz
+# VGA Constants
 H_VISIBLE = 640
 H_FRONT_PORCH = 16
 H_SYNC = 96
@@ -19,86 +17,133 @@ V_SYNC = 2
 V_BACK_PORCH = 33
 V_TOTAL = V_VISIBLE + V_FRONT_PORCH + V_SYNC + V_BACK_PORCH
 
+class VGAMonitor:
+    def __init__(self, dut):
+        self.dut = dut
+        self.hsync_transitions = 0
+        self.vsync_transitions = 0
+        self.prev_hsync = 0
+        self.prev_vsync = 0
+        self.active_pixels = 0
+        self.frame_count = 0
+
+    async def monitor_signals(self):
+        while True:
+            await RisingEdge(self.dut.clk)
+            
+            # Monitor HSYNC transitions
+            curr_hsync = self.dut.uo_out.value.integer >> 7 & 0x1
+            if curr_hsync != self.prev_hsync:
+                self.hsync_transitions += 1
+            self.prev_hsync = curr_hsync
+
+            # Monitor VSYNC transitions
+            curr_vsync = self.dut.uo_out.value.integer >> 3 & 0x1
+            if curr_vsync != self.prev_vsync:
+                self.vsync_transitions += 1
+                if curr_vsync == 1:  # Rising edge of VSYNC
+                    self.frame_count += 1
+            self.prev_vsync = curr_vsync
+
+            # Monitor active pixels
+            if self.is_active_pixel():
+                self.active_pixels += 1
+
+    def is_active_pixel(self):
+        rgb = self.dut.uo_out.value.integer & 0x77
+        return rgb != 0
+
 @cocotb.test()
-async def test_vga_signals(dut):
-    """Comprehensive test for VGA controller"""
-    
-    # Start clock (25MHz)
-    clock = Clock(dut.clk, 40, units="ns")
+async def test_vga_timing(dut):
+    """Test VGA timing specifications"""
+
+    # Initialize clock (60MHz)
+    clock = Clock(dut.clk, 16.67, units="ns")
     cocotb.start_soon(clock.start())
 
     # Initialize signals
+    dut.rst_n.value = 0
     dut.ena.value = 1
     dut.ui_in.value = 0
     dut.uio_in.value = 0
 
+    # Create VGA monitor
+    monitor = VGAMonitor(dut)
+    cocotb.start_soon(monitor.monitor_signals())
+
     # Reset sequence
-    dut.rst_n.value = 0
     await ClockCycles(dut.clk, 10)
     dut.rst_n.value = 1
     await ClockCycles(dut.clk, 10)
 
-    # Test HSYNC
-    async def check_hsync():
-        old_hsync = dut.uo_out[7].value
-        hsync_changes = 0
-        for _ in range(H_TOTAL):  # Wait for one horizontal line
-            await RisingEdge(dut.clk)
-            new_hsync = dut.uo_out[7].value
-            if old_hsync != new_hsync:
-                hsync_changes += 1
-            old_hsync = new_hsync
-        assert hsync_changes >= 2, f"HSYNC should change at least twice per line, got {hsync_changes} changes"
+    # Wait for one complete frame
+    await ClockCycles(dut.clk, H_TOTAL * V_TOTAL)
 
-    # Test VSYNC
-    async def check_vsync():
-        old_vsync = dut.uo_out[4].value
-        vsync_changes = 0
-        for _ in range(V_TOTAL * H_TOTAL):  # Wait for one frame
-            await RisingEdge(dut.clk)
-            new_vsync = dut.uo_out[4].value
-            if old_vsync != new_vsync:
-                vsync_changes += 1
-            old_vsync = new_vsync
-        assert vsync_changes >= 2, f"VSYNC should change at least twice per frame, got {vsync_changes} changes"
+    # Check HSYNC timing
+    expected_hsync_transitions = 2 * V_TOTAL  # Two transitions per line
+    assert abs(monitor.hsync_transitions - expected_hsync_transitions) <= 2, \
+        f"HSYNC transitions incorrect. Expected ~{expected_hsync_transitions}, got {monitor.hsync_transitions}"
 
-    # Test RGB signals
-    async def check_rgb():
-        rgb_active = False
-        for _ in range(H_TOTAL):
-            await RisingEdge(dut.clk)
-            # Check if any RGB signals are active
-            r = (dut.uo_out[0].value or dut.uo_out[3].value)
-            g = (dut.uo_out[1].value or dut.uo_out[2].value)
-            b = (dut.uo_out[5].value or dut.uo_out[6].value)
-            if r or g or b:
-                rgb_active = True
-        assert rgb_active, "No RGB activity detected during visible region"
+    # Check VSYNC timing
+    expected_vsync_transitions = 2  # Two transitions per frame
+    assert monitor.vsync_transitions >= expected_vsync_transitions, \
+        f"VSYNC transitions incorrect. Expected at least {expected_vsync_transitions}, got {monitor.vsync_transitions}"
 
-    # Run all checks
-    await check_hsync()
-    dut._log.info("HSYNC test passed")
-    
-    await check_vsync()
-    dut._log.info("VSYNC test passed")
-    
-    await check_rgb()
-    dut._log.info("RGB test passed")
+@cocotb.test()
+async def test_pattern_generation(dut):
+    """Test pattern and color generation"""
 
-    # Additional timing checks
-    async def check_timing():
-        hsync_active = 0
-        vsync_active = 0
-        for _ in range(H_TOTAL * 2):  # Check over two lines
-            await RisingEdge(dut.clk)
-            if dut.uo_out[7].value == 0:  # Active low HSYNC
-                hsync_active += 1
-            if dut.uo_out[4].value == 0:  # Active low VSYNC
-                vsync_active += 1
-        
-        assert H_SYNC-5 <= hsync_active <= H_SYNC+5, f"HSYNC timing out of spec: {hsync_active} cycles"
+    clock = Clock(dut.clk, 16.67, units="ns")
+    cocotb.start_soon(clock.start())
 
-    await check_timing()
-    dut._log.info("Timing test passed")
-    dut._log.info("All VGA tests completed successfully")
+    # Reset sequence
+    dut.rst_n.value = 0
+    dut.ena.value = 1
+    await ClockCycles(dut.clk, 10)
+    dut.rst_n.value = 1
 
+    # Monitor color changes
+    colors_seen = set()
+    monitor = VGAMonitor(dut)
+
+    # Sample multiple frames
+    for _ in range(3):
+        await ClockCycles(dut.clk, H_TOTAL * V_TOTAL)
+        colors = dut.uo_out.value.integer & 0x77
+        colors_seen.add(colors)
+
+    # Verify pattern generation
+    assert len(colors_seen) > 1, "Pattern should generate multiple colors"
+    assert monitor.active_pixels > 0, "No active pixels detected"
+
+@cocotb.test()
+async def test_radius_patterns(dut):
+    """Test radius-based pattern generation"""
+
+    clock = Clock(dut.clk, 16.67, units="ns")
+    cocotb.start_soon(clock.start())
+
+    # Reset sequence
+    dut.rst_n.value = 0
+    dut.ena.value = 1
+    await ClockCycles(dut.clk, 10)
+    dut.rst_n.value = 1
+
+    # Wait to reach center of screen
+    await ClockCycles(dut.clk, (V_TOTAL * H_TOTAL) // 2)
+
+    # Sample center pixels
+    center_colors = []
+    for _ in range(10):
+        await ClockCycles(dut.clk, 1)
+        center_colors.append(dut.uo_out.value.integer & 0x77)
+
+    # Sample edge pixels
+    edge_colors = []
+    await ClockCycles(dut.clk, H_TOTAL * 10)  # Move to edge
+    for _ in range(10):
+        await ClockCycles(dut.clk, 1)
+        edge_colors.append(dut.uo_out.value.integer & 0x77)
+
+    # Verify different patterns at center vs edge
+    assert center_colors != edge_colors, "Center and edge patterns should differ"
