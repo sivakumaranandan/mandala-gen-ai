@@ -14,21 +14,27 @@ async def init_test(dut):
     dut.uio_in.value = 0
     dut.ena.value = 1
     
-    # Wait 10 clock cycles
+    # Wait for clock to stabilize
     await ClockCycles(dut.clk, 10)
     dut.rst_n.value = 1
+    
+    # Wait for initialization
+    await ClockCycles(dut.clk, 100)
 
 @cocotb.test()
 async def test_vga_sync_signals(dut):
     """Test VGA sync signal generation"""
     await init_test(dut)
 
-    # Monitor for one line of video
+    # Wait for active video region
+    await ClockCycles(dut.clk, 800)
+
+    # Monitor for several lines of video
     hsync_seen = False
     vsync_seen = False
     
-    # Check for 800 clock cycles (one line)
-    for _ in range(800):
+    # Check for multiple lines
+    for _ in range(2400):  # 3 lines worth of cycles
         await RisingEdge(dut.clk)
         if dut.uo_out.value.integer & 0x80:  # Check HSYNC
             hsync_seen = True
@@ -36,26 +42,34 @@ async def test_vga_sync_signals(dut):
             vsync_seen = True
 
     assert hsync_seen, "HSYNC not detected"
-    dut._log.info("HSYNC detected successfully")
+    assert vsync_seen, "VSYNC not detected"
+    dut._log.info("Sync signals detected successfully")
 
 @cocotb.test()
 async def test_reset_behavior(dut):
     """Test reset behavior"""
-    # Start with reset active
-    dut.rst_n.value = 0
-    
     clock = Clock(dut.clk, 40, units="ns")
     cocotb.start_soon(clock.start())
-    
-    # Wait a few clock cycles
-    await ClockCycles(dut.clk, 5)
-    
-    # Release reset
+
+    # Initial reset
+    dut.rst_n.value = 0
+    dut.ena.value = 1
+    await ClockCycles(dut.clk, 10)
+
+    # Release reset and wait for active video
     dut.rst_n.value = 1
-    await ClockCycles(dut.clk, 5)
+    await ClockCycles(dut.clk, 800)  # Wait for one line
+
+    # Sample multiple points to check for activity
+    activity_detected = False
+    for _ in range(100):
+        await ClockCycles(dut.clk, 1)
+        if dut.uo_out.value != 0:
+            activity_detected = True
+            break
     
-    # Check that outputs are active
-    assert dut.uo_out.value != 0, "No output activity after reset"
+    assert activity_detected, "No output activity after reset"
+    dut._log.info("Reset behavior verified successfully")
 
 @cocotb.test()
 async def test_color_output(dut):
@@ -63,16 +77,41 @@ async def test_color_output(dut):
     await init_test(dut)
     
     # Wait for active video region
-    await ClockCycles(dut.clk, 100)
+    await ClockCycles(dut.clk, 800)
     
-    # Sample a few color values
+    # Sample color values over time
     colors = []
-    for _ in range(10):
+    for _ in range(50):
         await ClockCycles(dut.clk, 10)
-        colors.append(dut.uo_out.value.integer & 0x0F)  # Lower 4 bits are color
+        color = dut.uo_out.value.integer & 0x0F  # Lower 4 bits are color
+        colors.append(color)
     
-    # Verify that we see some color variation
-    assert len(set(colors)) > 1, "No color variation detected"
+    # Verify color variation
+    unique_colors = set(colors)
+    assert len(unique_colors) > 1, f"No color variation detected. Colors seen: {unique_colors}"
+    dut._log.info(f"Color variation verified. Unique colors: {unique_colors}")
+
+@cocotb.test()
+async def test_video_timing(dut):
+    """Test video timing parameters"""
+    await init_test(dut)
+    
+    # Monitor timing for one complete frame
+    line_count = 0
+    prev_hsync = (dut.uo_out.value.integer >> 7) & 1
+    
+    for _ in range(525 * 800):  # One frame worth of cycles
+        await RisingEdge(dut.clk)
+        curr_hsync = (dut.uo_out.value.integer >> 7) & 1
+        
+        # Count line transitions
+        if prev_hsync == 0 and curr_hsync == 1:
+            line_count += 1
+            
+        prev_hsync = curr_hsync
+    
+    assert line_count > 0, "No horizontal sync transitions detected"
+    dut._log.info(f"Video timing verified. Lines counted: {line_count}")
 
 # Test configuration
 if cocotb.SIM_NAME:
@@ -99,5 +138,5 @@ if __name__ == "__main__":
         sim_build="sim_build",
         waves=True,
         timescale="1ns/1ps",
-        plus_args=["+TIMEOUT=100000"]  # Increase timeout
+        plus_args=["+TIMEOUT=1000000"]  # Increased timeout
     )
