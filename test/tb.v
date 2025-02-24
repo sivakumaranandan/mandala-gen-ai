@@ -42,7 +42,7 @@ module tb;
         repeat(10) @(posedge clk);
         rst_n = 1;
 
-        // Wait for 2 frames (shorter simulation time)
+        // Wait for 2 frames
         repeat(525*800*2) @(posedge clk);
 
         $display("Simulation completed successfully");
