@@ -12,8 +12,17 @@ module tb;
     wire [7:0] uio_out;
     wire [7:0] uio_oe;
 
+`ifdef GL_TEST
+    wire VPWR = 1'b1;
+    wire VGND = 1'b0;
+`endif
+
     // Instantiate the VGA module
     tt_um_vga_example dut (
+`ifdef GL_TEST
+        .VPWR(VPWR),
+        .VGND(VGND),
+`endif
         .clk(clk),
         .rst_n(rst_n),
         .ui_in(ui_in),
@@ -23,6 +32,13 @@ module tb;
         .uio_out(uio_out),
         .uio_oe(uio_oe)
     );
+
+    // Dump waves
+    initial begin
+        $dumpfile("tb.vcd");
+        $dumpvars(0, tb);
+        #1;
+    end
 
     // Clock generation (25MHz)
     initial begin
@@ -47,12 +63,6 @@ module tb;
 
         $display("Simulation completed successfully");
         $finish;
-    end
-
-    // Monitor and dump waves
-    initial begin
-        $dumpfile("tb.vcd");
-        $dumpvars(0, tb);
     end
 
 endmodule
