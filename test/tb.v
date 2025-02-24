@@ -1,7 +1,7 @@
 `default_nettype none
 `timescale 1ns/1ps
 
-module tb;
+module tt_um_vga_example_tb;
     // Testbench signals
     reg clk;
     reg rst_n;
@@ -24,10 +24,10 @@ module tb;
         .uio_oe(uio_oe)
     );
 
-    // Clock generation (25MHz - typical VGA clock)
+    // Clock generation (25MHz)
     initial begin
         clk = 0;
-        forever #20 clk = ~clk; // 50MHz clock
+        forever #20 clk = ~clk;
     end
 
     // Test stimulus
@@ -38,25 +38,21 @@ module tb;
         uio_in = 8'h00;
         ena = 1;
 
-        // Release reset
-        #100;
+        // Wait 10 clock cycles and release reset
+        repeat(10) @(posedge clk);
         rst_n = 1;
 
-        // Wait for multiple frames
-        #5000000;
+        // Wait for 2 frames (shorter simulation time)
+        repeat(525*800*2) @(posedge clk);
 
-        // End simulation
+        $display("Simulation completed successfully");
         $finish;
     end
 
-    // Monitor outputs
+    // Monitor and dump waves
     initial begin
-        $dumpfile("tt_um_vga_example.vcd");
-        $dumpvars(0, tb);
-        
-        // Monitor VGA signals
-        $monitor("Time=%0t rst_n=%b hsync=%b vsync=%b",
-                 $time, rst_n, uo_out[7], uo_out[4]);
+        $dumpfile("tb.vcd");
+        $dumpvars(0, tt_um_vga_example_tb);
     end
 
 endmodule
