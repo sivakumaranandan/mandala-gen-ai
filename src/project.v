@@ -45,27 +45,29 @@ module tt_um_vga_example(
                        (delta_x + (delta_y >> 1)) : 
                        (delta_y + (delta_x >> 1));
 
-    // Scale the radius thresholds accordingly
-    wire [7:0] angle = (delta_y[7:0] ^ delta_x[7:0]) + pattern_counter[7:0];
+    // Enhanced angle calculation for more complex patterns
+    wire [7:0] angle = (delta_y[7:0] ^ delta_x[7:0]) + 
+                       pattern_counter[7:0] + 
+                       ((delta_x[6:0] + delta_y[6:0]) >> 1);
 
-    // Adjusted thresholds for octagonal approximation
-    wire layer1 = (radius < 50) & (angle[4] ^ angle[6]);
-    wire layer2 = (radius < 100 && radius >= 50) & (angle[3] ^ angle[5]);
-    wire layer3 = (radius < 150 && radius >= 100) & (angle[5] ^ angle[7]);
-    wire layer4 = (radius < 200 && radius >= 150) & (angle[2] ^ angle[6]);
-    wire layer5 = (radius < 250 && radius >= 200) & (angle[3] ^ angle[7]);
-    wire layer6 = (radius < 300 && radius >= 250) & (angle[1] ^ angle[6]);
-    wire layer7 = (radius < 350 && radius >= 300) & (angle[4] ^ angle[2]);
-    wire layer8 = (radius < 400 && radius >= 350) & (angle[7] ^ angle[3]);
+    // Enhanced layer patterns with more complexity
+    wire layer1 = (radius < 50) & (angle[4] ^ angle[6] ^ (radius[4:2] == pattern_counter[2:0]));
+    wire layer2 = (radius < 100 && radius >= 50) & (angle[3] ^ angle[5] ^ (delta_x[3] & delta_y[3]));
+    wire layer3 = (radius < 150 && radius >= 100) & (angle[5] ^ angle[7] ^ (radius[5:3] == 3'b101));
+    wire layer4 = (radius < 200 && radius >= 150) & (angle[2] ^ angle[6] ^ (delta_x[4] ^ delta_y[4]));
+    wire layer5 = (radius < 250 && radius >= 200) & (angle[3] ^ angle[7] ^ (radius[6:4] == pattern_counter[3:1]));
+    wire layer6 = (radius < 300 && radius >= 250) & (angle[1] ^ angle[6] ^ (delta_x[5] | delta_y[5]));
+    wire layer7 = (radius < 350 && radius >= 300) & (angle[4] ^ angle[2] ^ (radius[3:1] == 3'b011));
+    wire layer8 = (radius < 400 && radius >= 350) & (angle[7] ^ angle[3] ^ (delta_x[6] ^ delta_y[6]));
 
-    // Color generation (unchanged)
+    // Color generation
     wire [5:0] base_color = {
         color_counter[7:6],
         color_counter[5:4],
         color_counter[3:2]
     };
 
-    // Layer colors (unchanged)
+    // Layer colors
     wire [5:0] color1 = base_color + 6'b110000;  // Red tint
     wire [5:0] color2 = base_color + 6'b001100;  // Green tint
     wire [5:0] color3 = base_color + 6'b000011;  // Blue tint
@@ -75,7 +77,7 @@ module tt_um_vga_example(
     wire [5:0] color7 = base_color + 6'b101010;  // Teal tint
     wire [5:0] color8 = base_color + 6'b010101;  // Magenta tint
 
-    // Color assignment (unchanged)
+    // Color assignment
     wire [5:0] final_color = video_active ? (
         layer1 ? color1 :
         layer2 ? color2 :
@@ -95,6 +97,7 @@ module tt_um_vga_example(
     assign uo_out = {hsync, B[0], G[0], R[0], vsync, B[1], G[1], R[1]};
     assign uio_out = 8'b0;
     assign uio_oe = 8'b0;
+
     wire _unused_ok = &{ena, ui_in, uio_in};
 
     // VGA sync generator instantiation
@@ -109,7 +112,7 @@ module tt_um_vga_example(
     );
 endmodule
 
-// VGA Sync Generator (unchanged)
+// VGA Sync Generator
 module hvsync_generator(
     input  wire       clk,
     input  wire       reset,
