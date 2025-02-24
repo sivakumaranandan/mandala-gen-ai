@@ -99,8 +99,8 @@ module tb;
 
     // Optional: Dump waveforms
     initial begin
-        $dumpfile("tb_vga.vcd");
-        $dumpvars(0, tb_vga);
+        $dumpfile("tb.vcd");
+        $dumpvars(0, tb);
     end
 
 endmodule
