@@ -1,7 +1,7 @@
 `default_nettype none
 `timescale 1ns/1ps
 
-module tt_um_vga_example_tb;
+module tb;
     // Testbench signals
     reg clk;
     reg rst_n;
@@ -52,7 +52,7 @@ module tt_um_vga_example_tb;
     // Monitor and dump waves
     initial begin
         $dumpfile("tb.vcd");
-        $dumpvars(0, tt_um_vga_example_tb);
+        $dumpvars(0, tb);
     end
 
 endmodule
